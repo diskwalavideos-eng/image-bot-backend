@@ -7,12 +7,12 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Image Bot Backend is Live with Precise Multi-Text Inpainting! 🎉", 200
+    return "Image Bot Backend is Live and Running smoothly with Advanced Inpainting! 🎉", 200
 
 def hex_to_bgr(hex_color):
     hex_color = hex_color.lstrip('#')
     if len(hex_color) != 6:
-        return (0, 0, 255)
+        return (0, 0, 255) # Default Red
     r = int(hex_color[0:2], 16)
     g = int(hex_color[2:4], 16)
     b = int(hex_color[4:6], 16)
@@ -41,39 +41,37 @@ def process_image_api():
     img_h, img_w = img.shape[:2]
     cleaned_img = img.copy()
 
-    # --- PRECISE MULTI-TEXT REMOVAL (NO BACKGROUND BLUR) ---
+    # --- ADVANCED TEXT REMOVAL (STRONG INPAINTING) ---
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # Adaptive thresholding to catch text across various brightness
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10)
+    # 1. Morphological gradient to isolate text edges clearly
+    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    gradient = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel_morph)
     
-    # Connect text characters into words/lines
-    kernel_word = cv2.getStructuringElement(cv2.MORPH_RECT, (12, 3))
-    closed_words = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_word)
+    # 2. Thresholding to binarize text strokes
+    _, thresh = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     
-    # Find contours and filter strictly for text blocks (ignores background & large objects)
-    contours, _ = cv2.findContours(closed_words, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # 3. Connect text components horizontally (words & lines)
+    kernel_text = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3))
+    connected = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_text)
+    
+    # 4. Filter contours to build a solid precise mask over text areas
+    contours, _ = cv2.findContours(connected, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     mask = np.zeros_like(gray)
     
-    total_area = img_w * img_h
     for cnt in contours:
-        x, y, w, h = cnt_box = cv2.boundingRect(cnt)
-        box_area = w * h
-        # Strict constraints: text shouldn't be too huge, must have text-like proportions
-        if 6 < h < 120 and 6 < w < (img_w * 0.95) and box_area < (total_area * 0.15):
-            aspect_ratio = w / float(h)
-            if aspect_ratio > 0.15: # Valid text aspect ratio
-                cv2.drawContours(mask, [cnt], -1, 255, -1)
-                
-    # Small dilation so text edges are fully covered without expanding to background
-    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    final_mask = cv2.dilate(mask, kernel_dilate, iterations=1)
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w > 5 and h > 5 and (w / float(h) > 0.1) and (w * h < (img_w * img_h * 0.4)):
+            cv2.drawContours(mask, [cnt], -1, 255, -1)
+            
+    # Dilate mask slightly to cover edges completely
+    final_mask = cv2.dilate(mask, kernel_morph, iterations=2)
     
-    # Apply Inpainting only on detected text zones
-    cleaned_img = cv2.inpaint(img, final_mask, inpaintRadius=4, flags=cv2.INPAINT_TELEA)
-    # --------------------------------------------------------
+    # Apply OpenCV Inpainting
+    cleaned_img = cv2.inpaint(img, final_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    # --------------------------------------------------
 
-    # Place new text if provided
+    # If new text is provided, place it nicely onto the cleaned image
     if new_text and new_text.strip() != '':
         font_scale = max(0.5, manual_font_size / 30.0)
         thickness = max(1, int(font_scale * 2))
