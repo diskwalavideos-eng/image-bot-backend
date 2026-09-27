@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Image Bot Backend is Live and Running smoothly with Advanced Inpainting! 🎉", 200
+    return "Image Bot Backend is Live and Running smoothly with Robust Multi-Text Inpainting! 🎉", 200
 
 def hex_to_bgr(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -41,35 +41,26 @@ def process_image_api():
     img_h, img_w = img.shape[:2]
     cleaned_img = img.copy()
 
-    # --- ADVANCED TEXT REMOVAL (STRONG INPAINTING) ---
+    # --- ROBUST MULTI-TEXT REMOVAL (INPAINTING) ---
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # 1. Morphological gradient to isolate text edges clearly
-    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    gradient = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel_morph)
+    # 1. Use bilateral filter to smooth backgrounds while keeping text edges sharp
+    smoothed = cv2.bilateralFilter(gray, 9, 75, 75)
     
-    # 2. Thresholding to binarize text strokes
-    _, thresh = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    # 2. Adaptive Thresholding to catch multiple text locations across varying brightness
+    thresh = cv2.adaptiveThreshold(smoothed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 10)
     
-    # 3. Connect text components horizontally (words & lines)
-    kernel_text = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3))
-    connected = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_text)
+    # 3. Kernel to connect characters into words and lines (handles multiple text regions robustly)
+    kernel_word = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))
+    closed_words = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_word)
     
-    # 4. Filter contours to build a solid precise mask over text areas
-    contours, _ = cv2.findContours(connected, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    mask = np.zeros_like(gray)
+    # 4. Dilate slightly to ensure full coverage of text boundaries and edges
+    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    mask = cv2.dilate(closed_words, kernel_dilate, iterations=2)
     
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if w > 5 and h > 5 and (w / float(h) > 0.1) and (w * h < (img_w * img_h * 0.4)):
-            cv2.drawContours(mask, [cnt], -1, 255, -1)
-            
-    # Dilate mask slightly to cover edges completely
-    final_mask = cv2.dilate(mask, kernel_morph, iterations=2)
-    
-    # Apply OpenCV Inpainting
-    cleaned_img = cv2.inpaint(img, final_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-    # --------------------------------------------------
+    # Apply OpenCV Inpainting across all detected text regions safely
+    cleaned_img = cv2.inpaint(img, mask, inpaintRadius=7, flags=cv2.INPAINT_TELEA)
+    # ---------------------------------------------
 
     # If new text is provided, place it nicely onto the cleaned image
     if new_text and new_text.strip() != '':
