@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Image Bot Backend is Live and Running smoothly! 🎉", 200
+    return "Image Bot Backend is Live and Running smoothly with Inpainting! 🎉", 200
 
 def hex_to_bgr(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -41,6 +41,22 @@ def process_image_api():
     img_h, img_w = img.shape[:2]
     cleaned_img = img.copy()
 
+    # --- ADVANCED TEXT REMOVAL (INPAINTING) ---
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Use adaptive thresholding to detect high-contrast text regions
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10)
+    
+    # Kernel to dilate the text regions slightly so inpainting covers edges cleanly
+    kernel = np.ones((3, 3), np.uint8)
+    mask = cv2.dilate(thresh, kernel, iterations=1)
+    
+    # Apply OpenCV Fast Marching Inpainting to remove existing text smoothly
+    cleaned_img = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+    # ------------------------------------------
+
+    # If new text is provided, place it nicely onto the cleaned image
     if new_text and new_text.strip() != '':
         font_scale = max(0.5, manual_font_size / 30.0)
         thickness = max(1, int(font_scale * 2))
@@ -68,8 +84,7 @@ def process_image_api():
         else:
             x, y = (img_w - text_width) // 2, img_h - 40
 
-        cv2.rectangle(cleaned_img, (x - 10, y - text_height - 10), (x + text_width + 10, y + baseline + 10), (0, 0, 0), -1)
-
+        # Optional subtle background pill/box behind new text for readability
         cv2.putText(
             cleaned_img,
             new_text,
