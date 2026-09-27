@@ -1,7 +1,4 @@
 flask==3.0.2
 opencv-python-headless==4.9.0.80
-easyocr==1.7.1
 numpy==1.26.4
-torch
-torchvision
 gunicorn==21.2.0
