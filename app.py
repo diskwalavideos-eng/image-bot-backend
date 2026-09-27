@@ -5,6 +5,10 @@ from flask import Flask, request, send_file
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Image Bot Backend is Live and Running smoothly! 🎉", 200
+
 def hex_to_bgr(hex_color):
     hex_color = hex_color.lstrip('#')
     if len(hex_color) != 6:
@@ -37,7 +41,6 @@ def process_image_api():
     img_h, img_w = img.shape[:2]
     cleaned_img = img.copy()
 
-    # Agar user ne text add karne ya overlay karne ko kaha hai
     if new_text and new_text.strip() != '':
         font_scale = max(0.5, manual_font_size / 30.0)
         thickness = max(1, int(font_scale * 2))
@@ -46,7 +49,6 @@ def process_image_api():
             new_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness
         )
 
-        # Position Calculation (9-Grid / Custom)
         if position == 'top-left':
             x, y = 30, text_height + 30
         elif position == 'top-center':
@@ -63,13 +65,11 @@ def process_image_api():
             x, y = 30, img_h - 40
         elif position == 'bottom-right':
             x, y = img_w - text_width - 30, img_h - 40
-        else: # bottom-center (Default)
+        else:
             x, y = (img_w - text_width) // 2, img_h - 40
 
-        # Background box for text readability (Professional look)
         cv2.rectangle(cleaned_img, (x - 10, y - text_height - 10), (x + text_width + 10, y + baseline + 10), (0, 0, 0), -1)
 
-        # Draw New Text
         cv2.putText(
             cleaned_img,
             new_text,
