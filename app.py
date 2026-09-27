@@ -1,14 +1,9 @@
 import os
 import cv2
-import easyocr
 import numpy as np
 from flask import Flask, request, send_file
 
 app = Flask(__name__)
-
-print('Initializing EasyOCR model once into RAM...')
-reader = easyocr.Reader(['en'], gpu=False)
-print('EasyOCR model ready!')
 
 def hex_to_bgr(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -39,46 +34,52 @@ def process_image_api():
     if img is None:
         return 'Invalid image', 400
 
-    results = reader.readtext(input_path)
+    img_h, img_w = img.shape[:2]
+    cleaned_img = img.copy()
 
-    if results:
-        mask = np.zeros(img.shape[:2], dtype='uint8')
-        for bbox, text, prob in results:
-            pts = np.array(bbox, dtype=np.int32)
-            cv2.fillPoly(mask, [pts], 255)
-
-        cleaned_img = cv2.inpaint(img, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-    else:
-        cleaned_img = img
-
+    # Agar user ne text add karne ya overlay karne ko kaha hai
     if new_text and new_text.strip() != '':
-        img_h, img_w = cleaned_img.shape[:2]
-        detected_height = manual_font_size
-        if position == 'auto-detected' and results:
-            box = results[0][0]
-            detected_height = int(abs(box[3][1] - box[0][1]))
-            if detected_height < 15:
-                detected_height = manual_font_size
-
-        font_scale = max(0.5, detected_height / 30.0)
+        font_scale = max(0.5, manual_font_size / 30.0)
         thickness = max(1, int(font_scale * 2))
 
         (text_width, text_height), baseline = cv2.getTextSize(
             new_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness
         )
 
-        x, y = (img_w - text_width) // 2, img_h - 40
-
-        if position == 'auto-detected' and results:
-            x = int(results[0][0][0][0])
-            y = int(results[0][0][0][1]) + text_height + 5
-            if x + text_width > img_w: x = img_w - text_width - 20
-            if x < 10: x = 10
-            if y > img_h - 20: y = img_h - 40
-        elif position == 'bottom-center':
+        # Position Calculation (9-Grid / Custom)
+        if position == 'top-left':
+            x, y = 30, text_height + 30
+        elif position == 'top-center':
+            x, y = (img_w - text_width) // 2, text_height + 30
+        elif position == 'top-right':
+            x, y = img_w - text_width - 30, text_height + 30
+        elif position == 'center-left':
+            x, y = 30, (img_h + text_height) // 2
+        elif position == 'center':
+            x, y = (img_w - text_width) // 2, (img_h + text_height) // 2
+        elif position == 'center-right':
+            x, y = img_w - text_width - 30, (img_h + text_height) // 2
+        elif position == 'bottom-left':
+            x, y = 30, img_h - 40
+        elif position == 'bottom-right':
+            x, y = img_w - text_width - 30, img_h - 40
+        else: # bottom-center (Default)
             x, y = (img_w - text_width) // 2, img_h - 40
 
-        cv2.putText(cleaned_img, new_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, cv2.LINE_AA)
+        # Background box for text readability (Professional look)
+        cv2.rectangle(cleaned_img, (x - 10, y - text_height - 10), (x + text_width + 10, y + baseline + 10), (0, 0, 0), -1)
+
+        # Draw New Text
+        cv2.putText(
+            cleaned_img,
+            new_text,
+            (x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            text_color,
+            thickness,
+            cv2.LINE_AA,
+        )
 
     cv2.imwrite(output_path, cleaned_img)
     return send_file(output_path, mimetype='image/jpeg')
