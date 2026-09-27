@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Image Bot Backend is Live and Running smoothly with Inpainting! 🎉", 200
+    return "Image Bot Backend is Live and Running smoothly with Advanced Inpainting! 🎉", 200
 
 def hex_to_bgr(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -41,20 +41,35 @@ def process_image_api():
     img_h, img_w = img.shape[:2]
     cleaned_img = img.copy()
 
-    # --- ADVANCED TEXT REMOVAL (INPAINTING) ---
-    # Convert to grayscale
+    # --- ADVANCED TEXT REMOVAL (STRONG INPAINTING) ---
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # Use adaptive thresholding to detect high-contrast text regions
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10)
+    # 1. Morphological gradient to isolate text edges clearly
+    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    gradient = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel_morph)
     
-    # Kernel to dilate the text regions slightly so inpainting covers edges cleanly
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.dilate(thresh, kernel, iterations=1)
+    # 2. Thresholding to binarize text strokes
+    _, thresh = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     
-    # Apply OpenCV Fast Marching Inpainting to remove existing text smoothly
-    cleaned_img = cv2.inpaint(img, mask, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
-    # ------------------------------------------
+    # 3. Connect text components horizontally (words & lines)
+    kernel_text = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3))
+    connected = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_text)
+    
+    # 4. Filter contours to build a solid precise mask over text areas
+    contours, _ = cv2.findContours(connected, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    mask = np.zeros_like(gray)
+    
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w > 5 and h > 5 and (w / float(h) > 0.1) and (w * h < (img_w * img_h * 0.4)):
+            cv2.drawContours(mask, [cnt], -1, 255, -1)
+            
+    # Dilate mask slightly to cover edges completely
+    final_mask = cv2.dilate(mask, kernel_morph, iterations=2)
+    
+    # Apply OpenCV Inpainting
+    cleaned_img = cv2.inpaint(img, final_mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    # --------------------------------------------------
 
     # If new text is provided, place it nicely onto the cleaned image
     if new_text and new_text.strip() != '':
@@ -84,7 +99,6 @@ def process_image_api():
         else:
             x, y = (img_w - text_width) // 2, img_h - 40
 
-        # Optional subtle background pill/box behind new text for readability
         cv2.putText(
             cleaned_img,
             new_text,
